@@ -16,7 +16,7 @@
   <div class="auth-card">
     <div class="brand">
       <div class="brand-logo"><span>S</span><b>H</b><i>S</i></div>
-      <div><strong>SHS <em>Connect</em>.</strong><small>Student Community</small></div>
+      <div><strong>SHS <em>Connect</em>.</strong><small>Student community</small></div>
     </div>
 
     <div class="tricolor"><span></span><span></span><span></span></div>
@@ -30,10 +30,10 @@
       <h1>Welcome back</h1>
       <p class="muted">Log in to continue to SHS Connect.</p>
       <label>Email
-        <input id="loginEmail" type="email" autocomplete="email" required placeholder="yourname@gmail.com">
+        <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@example.com">
       </label>
       <label>Password
-        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Your Password">
+        <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Your password">
       </label>
       <button class="primary full" type="submit">Log in</button>
     </form>
@@ -49,6 +49,49 @@
       </label>
       <label>Your school
         <input id="regSchool" required maxlength="100" placeholder="School name">
+      </label>
+      <label>Gender
+        <select id="regGender" required>
+          <option value="" selected disabled>Select gender</option>
+          <option>Male</option>
+          <option>Female</option>
+          <option>Other</option>
+          <option>Prefer not to say</option>
+        </select>
+      </label>
+      <label>Phone number
+        <input id="regPhone" type="tel" required maxlength="20" autocomplete="tel" placeholder="e.g. 024 123 4567">
+      </label>
+      <label>Course
+        <select id="regCourse" required>
+          <option value="" selected disabled>Select your course</option>
+          <optgroup label="SHS / SHTS">
+            <option>General Science</option><option>General Arts</option><option>Business</option>
+            <option>Visual Arts</option><option>Home Economics</option><option>Agricultural Science</option>
+            <option>Information and Communication Technology (ICT)</option><option>Technical Science</option>
+            <option>Applied Electricity</option><option>Auto Mechanics</option><option>Building Construction</option>
+            <option>Carpentry and Joinery</option><option>Electrical Installation</option><option>Electronics</option>
+            <option>Fashion and Textiles</option><option>Graphic Design</option><option>Metalwork</option>
+            <option>Plumbing</option><option>Welding and Fabrication</option><option>Woodwork</option>
+            <option>Mechanical Engineering Craft</option><option>Motor Vehicle Mechanics</option>
+            <option>Visual Communication</option><option>Food and Nutrition</option><option>Clothing and Textiles</option>
+            <option>Management in Living</option><option>French</option><option>Music</option>
+            <option>Physical Education</option><option>Other</option>
+          </optgroup>
+          <optgroup label="TVET / Technical">
+            <option>Automotive Engineering</option><option>Electrical Engineering</option><option>Electronics Engineering</option>
+            <option>Mechanical Engineering</option><option>Civil Engineering</option><option>Building Technology</option>
+            <option>Construction Technology</option><option>Plumbing Technology</option><option>Welding and Fabrication Technology</option>
+            <option>Refrigeration and Air Conditioning</option><option>Carpentry and Joinery</option>
+            <option>Furniture Design and Production</option><option>Fashion Design and Textiles</option><option>Graphic Design</option>
+            <option>Printing Technology</option><option>Hospitality Management</option><option>Catering and Culinary Arts</option>
+            <option>Cosmetology</option><option>Hairdressing</option><option>Beauty Therapy</option>
+            <option>Information Technology</option><option>Computer Science</option><option>Networking</option>
+            <option>Software Development</option><option>Database Technology</option><option>Agricultural Engineering</option>
+            <option>General Agriculture</option><option>Horticulture</option><option>Fisheries</option>
+            <option>Other</option>
+          </optgroup>
+        </select>
       </label>
       <label>Email
         <input id="regEmail" type="email" autocomplete="email" required placeholder="you@example.com">
@@ -119,6 +162,8 @@
         <div id="communityMessages" class="messages-area"></div>
 
         <form id="communityForm" class="composer">
+          <button id="communityMediaBtn" type="button" class="composer-icon" aria-label="Share media">📎</button>
+          <input id="communityMediaInput" class="media-input" type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" hidden>
           <div class="emoji-wrap">
             <button id="communityEmojiBtn" type="button" class="composer-icon" aria-label="Emoji">☺</button>
             <div id="communityEmojiPicker" class="emoji-picker hidden"></div>
@@ -152,6 +197,8 @@
           </div>
           <div id="privateMessages" class="messages-area"></div>
           <form id="privateForm" class="composer">
+            <button id="privateMediaBtn" type="button" class="composer-icon" aria-label="Share media">📎</button>
+            <input id="privateMediaInput" class="media-input" type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" hidden>
             <div class="emoji-wrap">
               <button id="privateEmojiBtn" type="button" class="composer-icon">☺</button>
               <div id="privateEmojiPicker" class="emoji-picker hidden"></div>
@@ -203,6 +250,23 @@
       <div id="studentsGrid" class="students-grid"></div>
     </section>
   </main>
+
+  <div id="userProfileModal" class="profile-modal hidden">
+    <div class="profile-modal-card">
+      <button id="closeUserProfile" class="profile-modal-close" aria-label="Close">×</button>
+      <div id="viewUserAvatar" class="avatar huge">S</div>
+      <h2 id="viewUserName">Student</h2>
+      <p id="viewUserUsername">@student</p>
+      <div class="view-user-details">
+        <div><span>School</span><strong id="viewUserSchool">School not set</strong></div>
+        <div><span>Gender</span><strong id="viewUserGender">Not provided</strong></div>
+        <div><span>Course</span><strong id="viewUserCourse">Not provided</strong></div>
+        <div><span>Phone</span><strong id="viewUserPhone">Not provided</strong></div>
+        <div><span>Bio</span><strong id="viewUserBio">No bio</strong></div>
+      </div>
+      <button id="viewUserMessageBtn" class="primary full">Message</button>
+    </div>
+  </div>
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="globalSearchPanel" class="global-search hidden">
