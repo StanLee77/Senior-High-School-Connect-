@@ -76,3 +76,11 @@ button,input,textarea{font:inherit}button{border:0;cursor:pointer}.hidden{displa
 .view-user-details>div{padding:10px 12px;background:#f5f7f9;border-radius:10px}
 .view-user-details span{display:block;color:var(--muted);font-size:10px;margin-bottom:3px}
 .view-user-details strong{display:block;overflow-wrap:anywhere}
+
+/* Sent-message controls */
+.message-actions{position:absolute;right:5px;top:4px;display:flex;gap:2px;opacity:0;transition:opacity .15s ease}
+.message-bubble:hover .message-actions,.message-bubble:focus-within .message-actions{opacity:1}
+.message-action{border:0;background:transparent;padding:2px 4px;border-radius:5px;cursor:pointer;font-size:11px;line-height:1}
+.message-action:hover{background:#0000000d}
+.mine .sender{padding-right:42px}
+@media (hover:none){.message-actions{opacity:1}}
