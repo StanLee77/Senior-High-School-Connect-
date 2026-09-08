@@ -1,10 +1,10 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import {
   getAuth,onAuthStateChanged,createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,signOut,updateProfile
+  signInWithEmailAndPassword,signOut,updateProfile,deleteUser
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 import {
-  getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,
+  getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,
   query,orderBy,limit,onSnapshot,serverTimestamp,where,arrayUnion
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 /* Your existing Firebase project configuration is kept here. */
@@ -59,9 +59,14 @@ $("registerForm").onsubmit=async e=>{
  const name=$("regName").value.trim(),username=normalizeUsername($("regUsername").value),school=$("regSchool").value.trim(),gender=$("regGender").value,phone=$("regPhone").value.trim(),course=$("regCourse").value,email=$("regEmail").value.trim().toLowerCase(),password=$("regPassword").value;
  if(!/^[a-z0-9_.-]{3,20}$/.test(username)) return $("authError").textContent="Username must be 3–20 letters, numbers, dots, dashes or underscores.";
  try{
-   const existing=await getDocs(query(collection(db,"users"),where("username","==",username),limit(1)));
-   if(!existing.empty) return $("authError").textContent="That username is already taken.";
+   // Firestore reads require authentication under the current security rules,
+   // so create the Firebase Auth account before checking the username.
    const cred=await createUserWithEmailAndPassword(auth,email,password);
+   const existing=await getDocs(query(collection(db,"users"),where("username","==",username),limit(1)));
+   if(!existing.empty){
+     await deleteUser(cred.user);
+     return $("authError").textContent="That username is already taken.";
+   }
    await updateProfile(cred.user,{displayName:name});
    await setDoc(doc(db,"users",cred.user.uid),{uid:cred.user.uid,name,username,school,gender,phone,course,email,bio:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
    toast("Account created.");
@@ -269,11 +274,54 @@ function renderMessages(box,list){
    const senderId=m.uid||m.senderId;
    const av=`<button type="button" class="mini-avatar user-avatar-btn" data-user-id="${esc(senderId||"")}">${esc(initials(m.fullName||m.username))}</button>`;
    const senderName=mine?"You":esc(m.fullName||users.get(senderId)?.name||"Student");
-   row.innerHTML=`${mine?"":av}<div class="message-bubble"><div class="sender">${senderName}</div>${mediaMarkup(m)}${m.text?`<div class="message-text">${esc(m.text)}</div>`:""}<div class="message-meta">${esc(timeOf(m.createdAt))}${mine?'<span class="ticks">✓✓</span>':""}</div></div>${mine?av:""}`;
+   const actions=mine?`<div class="message-actions"><button type="button" class="message-action edit-message" data-message-id="${esc(m.id)}" data-message-scope="${esc(box.id)}" aria-label="Edit message">✏️</button><button type="button" class="message-action delete-message" data-message-id="${esc(m.id)}" data-message-scope="${esc(box.id)}" aria-label="Delete message">🗑️</button></div>`:"";
+   row.innerHTML=`${mine?"":av}<div class="message-bubble">${actions}<div class="sender">${senderName}</div>${mediaMarkup(m)}${m.text?`<div class="message-text">${esc(m.text)}</div>`:""}<div class="message-meta">${esc(timeOf(m.createdAt))}${m.edited?" · edited":""}${mine?'<span class="ticks">✓✓</span>':""}</div></div>${mine?av:""}`;
    box.appendChild(row);
  });
  box.querySelectorAll("[data-user-id]").forEach(b=>b.onclick=()=>openUserProfile(b.dataset.userId));
+ box.querySelectorAll(".edit-message").forEach(b=>b.onclick=()=>editMessage(b.dataset.messageId,b.dataset.messageScope));
+ box.querySelectorAll(".delete-message").forEach(b=>b.onclick=()=>deleteMessage(b.dataset.messageId,b.dataset.messageScope));
  box.scrollTop=box.scrollHeight;
+}
+
+function findCachedMessage(messageId,scope){
+ if(scope==="communityMessages") return communityCache.find(m=>m.id===messageId);
+ return null;
+}
+
+async function editMessage(messageId,scope){
+ try{
+   let m=findCachedMessage(messageId,scope);
+   if(!m && selectedUser && scope==="privateMessages"){
+     const snap=await getDoc(doc(db,"conversations",privateId(currentUser.uid,selectedUser.id),"messages",messageId));
+     if(snap.exists())m={id:snap.id,...snap.data()};
+   }
+   if(!m)return;
+   const owner=m.uid||m.senderId;if(owner!==currentUser.uid){toast("You can only edit your own messages.");return;}
+   const next=prompt("Edit your message:",m.text||"");
+   if(next===null)return;
+   const text=next.trim();
+   if(!text){toast("Message text cannot be empty. Delete it instead.");return;}
+   if(scope==="communityMessages") await updateDoc(doc(db,"messages",messageId),{text,edited:true,editedAt:serverTimestamp()});
+   else if(selectedUser) await updateDoc(doc(db,"conversations",privateId(currentUser.uid,selectedUser.id),"messages",messageId),{text,edited:true,editedAt:serverTimestamp()});
+   toast("Message edited.");
+ }catch(err){console.error(err);toast("Could not edit message. Check your connection and Firestore rules.");}
+}
+
+async function deleteMessage(messageId,scope){
+ if(!confirm("Delete this message?"))return;
+ try{
+   let m=findCachedMessage(messageId,scope);
+   if(!m && selectedUser && scope==="privateMessages"){
+     const snap=await getDoc(doc(db,"conversations",privateId(currentUser.uid,selectedUser.id),"messages",messageId));
+     if(snap.exists())m={id:snap.id,...snap.data()};
+   }
+   if(!m)return;
+   const owner=m.uid||m.senderId;if(owner!==currentUser.uid){toast("You can only delete your own messages.");return;}
+   if(scope==="communityMessages") await deleteDoc(doc(db,"messages",messageId));
+   else if(selectedUser) await deleteDoc(doc(db,"conversations",privateId(currentUser.uid,selectedUser.id),"messages",messageId));
+   toast("Message deleted.");
+ }catch(err){console.error(err);toast("Could not delete message. Check your connection and Firestore rules.");}
 }
 $("communitySearchBtn").onclick=()=>{$("communitySearchBar").classList.remove("hidden");$("communitySearchInput").focus()};
 $("closeCommunitySearch").onclick=()=>{$("communitySearchBar").classList.add("hidden");$("communitySearchInput").value="";renderMessages($("communityMessages"),communityCache)};
