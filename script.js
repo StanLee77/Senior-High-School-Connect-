@@ -7,10 +7,6 @@ import {
   getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,
   query,orderBy,limit,onSnapshot,serverTimestamp,where,arrayUnion
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import {
-  getStorage,ref as storageRef,uploadBytes,getDownloadURL
-} from "https://www.gstatic.com/firebasejs/12.2.1/firebase-storage.js";
-
 /* Your existing Firebase project configuration is kept here. */
 const firebaseConfig={
   apiKey:"AIzaSyCklTWsAmJsOof64Scs4GcovhWqMMnKYCA",
@@ -23,7 +19,7 @@ const firebaseConfig={
 
 const app=initializeApp(firebaseConfig);
 const auth=getAuth(app);
-const db=getFirestore(app);\nconst storage=getStorage(app);
+const db=getFirestore(app);
 
 const $=id=>document.getElementById(id);
 let currentUser=null,currentProfile=null;
@@ -185,15 +181,39 @@ async function openPrivate(uid){
 }
 $("privateBackBtn").onclick=()=>{selectedUser=null;unsubPrivate?.();unsubPrivate=null;document.querySelector(".private-shell").classList.remove("chat-open");$("privateChat").classList.add("hidden");renderPrivateUsers()};
 
+/* Media is stored in Cloudinary so Firebase Storage/Blaze billing is not required.
+   Create an unsigned Cloudinary upload preset and put your values below. */
+const CLOUDINARY_CLOUD_NAME="wdda959x";
+const CLOUDINARY_UPLOAD_PRESET="shsconnect_media";
+
+function cloudinaryResourceType(file){
+ const type=String(file.type||"").toLowerCase();
+ if(type.startsWith("image/")) return "image";
+ if(type.startsWith("video/")||type.startsWith("audio/")) return "video";
+ return "raw";
+}
+
 async function uploadMedia(file){
  if(!file)return null;
  const max=20*1024*1024;
  if(file.size>max){toast("Media must be 20 MB or smaller.");return null;}
- const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
- const path=`chatMedia/${currentUser.uid}/${Date.now()}_${safeName}`;
- const ref=storageRef(storage,path);
- await uploadBytes(ref,file,{contentType:file.type||"application/octet-stream"});
- return {mediaUrl:await getDownloadURL(ref),mediaType:file.type||"application/octet-stream",mediaName:file.name,mediaSize:file.size};
+ if(CLOUDINARY_CLOUD_NAME.startsWith("YOUR_")||CLOUDINARY_UPLOAD_PRESET.startsWith("YOUR_")){
+   toast("Set up Cloudinary in script.js before sharing media.");
+   return null;
+ }
+ const resourceType=cloudinaryResourceType(file);
+ const endpoint=`https://api.cloudinary.com/v1_1/${encodeURIComponent(CLOUDINARY_CLOUD_NAME)}/${resourceType}/upload`;
+ const form=new FormData();
+ form.append("file",file);
+ form.append("upload_preset",CLOUDINARY_UPLOAD_PRESET);
+ form.append("folder","shsconnect/chat-media");
+ const res=await fetch(endpoint,{method:"POST",body:form});
+ const data=await res.json().catch(()=>({}));
+ if(!res.ok||!data.secure_url){
+   console.error("Cloudinary upload failed",data);
+   throw new Error(data.error?.message||"Cloudinary upload failed");
+ }
+ return {mediaUrl:data.secure_url,mediaType:file.type||"application/octet-stream",mediaName:file.name,mediaSize:file.size,mediaResourceType:resourceType,mediaPublicId:data.public_id||""};
 }
 async function sendPrivate(text,file=null){
  if(!selectedUser||(!text&&!file))return;
@@ -204,7 +224,7 @@ async function sendPrivate(text,file=null){
    const preview=text||`📎 ${file.name}`;
    await setDoc(doc(db,"conversations",cid),{participants:[currentUser.uid,selectedUser.id],lastMessage:preview,lastMessageAt:serverTimestamp()},{merge:true});
    await addDoc(collection(db,"conversations",cid,"messages"),messageData);
- }catch(err){console.error(err);toast("Message failed. Check Firebase Storage rules and your connection.")}
+ }catch(err){console.error(err);toast("Message failed. Check your Cloudinary setup and connection.")}
 }
 $("privateForm").onsubmit=async e=>{e.preventDefault();const text=$("privateInput").value.trim(),file=$("privateMediaInput").files[0];if(!text&&!file)return;await sendPrivate(text,file);$("privateInput").value="";$("privateMediaInput").value=""};
 $("privateMediaBtn").onclick=()=>$("privateMediaInput").click();
@@ -224,7 +244,7 @@ $("communityForm").onsubmit=async e=>{
    const media=file?await uploadMedia(file):null;
    await addDoc(collection(db,"messages"),{uid:currentUser.uid,fullName:currentProfile.name,username:currentProfile.username,school:currentProfile.school,text:text||"",createdAt:serverTimestamp(),...(media||{})});
    $("communityInput").value="";$("communityMediaInput").value="";
- }catch(err){console.error(err);toast("Could not send media/message. Check Firebase Storage rules.")}
+ }catch(err){console.error(err);toast("Could not send media/message. Check your Cloudinary setup.")}
 };
 $("communityMediaBtn").onclick=()=>$("communityMediaInput").click();
 
