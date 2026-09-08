@@ -7,6 +7,9 @@ import {
   getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,
   query,orderBy,limit,onSnapshot,serverTimestamp,where,arrayUnion
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import {
+  getStorage,ref as storageRef,uploadBytes,getDownloadURL
+} from "https://www.gstatic.com/firebasejs/12.2.1/firebase-storage.js";
 
 /* Your existing Firebase project configuration is kept here. */
 const firebaseConfig={
@@ -20,7 +23,7 @@ const firebaseConfig={
 
 const app=initializeApp(firebaseConfig);
 const auth=getAuth(app);
-const db=getFirestore(app);
+const db=getFirestore(app);\nconst storage=getStorage(app);
 
 const $=id=>document.getElementById(id);
 let currentUser=null,currentProfile=null;
@@ -57,14 +60,14 @@ $("loginForm").onsubmit=async e=>{
 
 $("registerForm").onsubmit=async e=>{
  e.preventDefault();
- const name=$("regName").value.trim(),username=normalizeUsername($("regUsername").value),school=$("regSchool").value.trim(),email=$("regEmail").value.trim().toLowerCase(),password=$("regPassword").value;
+ const name=$("regName").value.trim(),username=normalizeUsername($("regUsername").value),school=$("regSchool").value.trim(),gender=$("regGender").value,phone=$("regPhone").value.trim(),course=$("regCourse").value,email=$("regEmail").value.trim().toLowerCase(),password=$("regPassword").value;
  if(!/^[a-z0-9_.-]{3,20}$/.test(username)) return $("authError").textContent="Username must be 3–20 letters, numbers, dots, dashes or underscores.";
  try{
    const existing=await getDocs(query(collection(db,"users"),where("username","==",username),limit(1)));
    if(!existing.empty) return $("authError").textContent="That username is already taken.";
    const cred=await createUserWithEmailAndPassword(auth,email,password);
    await updateProfile(cred.user,{displayName:name});
-   await setDoc(doc(db,"users",cred.user.uid),{uid:cred.user.uid,name,username,school,email,bio:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
+   await setDoc(doc(db,"users",cred.user.uid),{uid:cred.user.uid,name,username,school,gender,phone,course,email,bio:"",createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
    toast("Account created.");
  }catch(err){$("authError").textContent=friendly(err)}
 };
@@ -152,8 +155,11 @@ function startUsers(){
 function renderPrivateUsers(){
  const term=($("privateSearchInput")?.value||"").trim().toLowerCase();
  const list=[...users.values()].filter(u=>u.id!==currentUser.uid).filter(u=>!term||`${u.name} ${u.username} ${u.school}`.toLowerCase().includes(term));
- $("privateUsers").innerHTML=list.length?list.map(u=>`<div class="private-user ${selectedUser?.id===u.id?"active":""}" data-id="${esc(u.id)}"><div class="avatar">${esc(initials(u.name))}</div><div style="min-width:0"><strong>${esc(u.name||"Student")}</strong><small>@${esc(u.username||"student")} · ${esc(u.school||"School not set")}</small></div></div>`).join(""):`<div class="empty-chat" style="height:250px"><div><div class="empty-icon">🔎</div><p>No students found.</p></div></div>`;
- $("privateUsers").querySelectorAll("[data-id]").forEach(x=>x.onclick=()=>openPrivate(x.dataset.id));
+ $("privateUsers").innerHTML=list.length?list.map(u=>`<div class="private-user ${selectedUser?.id===u.id?"active":""}" data-id="${esc(u.id)}"><button type="button" class="user-avatar-btn avatar" aria-label="View ${esc(u.name||"student")}'s profile">${esc(initials(u.name))}</button><div style="min-width:0"><strong>${esc(u.name||"Student")}</strong><small>@${esc(u.username||"student")} · ${esc(u.school||"School not set")}</small></div></div>`).join(""):`<div class="empty-chat" style="height:250px"><div><div class="empty-icon">🔎</div><p>No students found.</p></div></div>`;
+ $("privateUsers").querySelectorAll("[data-id]").forEach(x=>x.onclick=e=>{
+  if(e.target.closest(".user-avatar-btn")) openUserProfile(x.dataset.id);
+  else openPrivate(x.dataset.id);
+});
 }
 $("privateSearchInput").oninput=renderPrivateUsers;
 $("privateSearchBtn").onclick=()=>$("privateSearchWrap").classList.toggle("hidden");
@@ -164,6 +170,7 @@ async function openPrivate(uid){
  $("privateName").textContent=selectedUser.name||"Student";
  $("privateSchool").textContent="@"+(selectedUser.username||"student")+" · "+(selectedUser.school||"School not set");
  $("privateAvatar").textContent=initials(selectedUser.name);
+ $("privateAvatar").onclick=()=>openUserProfile(selectedUser.id);
  $("privateShell")?.classList.add("chat-open");
  $("privateChat").classList.remove("hidden");
  document.querySelector(".private-shell").classList.add("chat-open");
@@ -178,15 +185,29 @@ async function openPrivate(uid){
 }
 $("privateBackBtn").onclick=()=>{selectedUser=null;unsubPrivate?.();unsubPrivate=null;document.querySelector(".private-shell").classList.remove("chat-open");$("privateChat").classList.add("hidden");renderPrivateUsers()};
 
-async function sendPrivate(text){
- if(!selectedUser||!text)return;
+async function uploadMedia(file){
+ if(!file)return null;
+ const max=20*1024*1024;
+ if(file.size>max){toast("Media must be 20 MB or smaller.");return null;}
+ const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+ const path=`chatMedia/${currentUser.uid}/${Date.now()}_${safeName}`;
+ const ref=storageRef(storage,path);
+ await uploadBytes(ref,file,{contentType:file.type||"application/octet-stream"});
+ return {mediaUrl:await getDownloadURL(ref),mediaType:file.type||"application/octet-stream",mediaName:file.name,mediaSize:file.size};
+}
+async function sendPrivate(text,file=null){
+ if(!selectedUser||(!text&&!file))return;
  const cid=privateId(currentUser.uid,selectedUser.id);
  try{
-   await setDoc(doc(db,"conversations",cid),{participants:[currentUser.uid,selectedUser.id],lastMessage:text,lastMessageAt:serverTimestamp()},{merge:true});
-   await addDoc(collection(db,"conversations",cid,"messages"),{senderId:currentUser.uid,receiverId:selectedUser.id,text,createdAt:serverTimestamp()});
- }catch(err){console.error(err);toast("Message failed. Check Firestore rules.")}
+   const media=file?await uploadMedia(file):null;
+   const messageData={senderId:currentUser.uid,receiverId:selectedUser.id,text:text||"",createdAt:serverTimestamp(),...(media||{})};
+   const preview=text||`📎 ${file.name}`;
+   await setDoc(doc(db,"conversations",cid),{participants:[currentUser.uid,selectedUser.id],lastMessage:preview,lastMessageAt:serverTimestamp()},{merge:true});
+   await addDoc(collection(db,"conversations",cid,"messages"),messageData);
+ }catch(err){console.error(err);toast("Message failed. Check Firebase Storage rules and your connection.")}
 }
-$("privateForm").onsubmit=async e=>{e.preventDefault();const text=$("privateInput").value.trim();if(!text)return;await sendPrivate(text);$("privateInput").value=""};
+$("privateForm").onsubmit=async e=>{e.preventDefault();const text=$("privateInput").value.trim(),file=$("privateMediaInput").files[0];if(!text&&!file)return;await sendPrivate(text,file);$("privateInput").value="";$("privateMediaInput").value=""};
+$("privateMediaBtn").onclick=()=>$("privateMediaInput").click();
 
 function startCommunity(){
  const q=query(collection(db,"messages"),orderBy("createdAt","asc"),limit(300));
@@ -196,27 +217,42 @@ function startCommunity(){
  },err=>{console.error(err);toast("Community chat could not load. Check Firestore rules.")});
 }
 $("communityForm").onsubmit=async e=>{
- e.preventDefault();const text=$("communityInput").value.trim();if(!text)return;
+ e.preventDefault();
+ const text=$("communityInput").value.trim(),file=$("communityMediaInput").files[0];
+ if(!text&&!file)return;
  try{
-   await addDoc(collection(db,"messages"),{uid:currentUser.uid,fullName:currentProfile.name,username:currentProfile.username,school:currentProfile.school,text,createdAt:serverTimestamp()});
-   $("communityInput").value="";
- }catch(err){console.error(err);toast("Could not send community message.")}
+   const media=file?await uploadMedia(file):null;
+   await addDoc(collection(db,"messages"),{uid:currentUser.uid,fullName:currentProfile.name,username:currentProfile.username,school:currentProfile.school,text:text||"",createdAt:serverTimestamp(),...(media||{})});
+   $("communityInput").value="";$("communityMediaInput").value="";
+ }catch(err){console.error(err);toast("Could not send media/message. Check Firebase Storage rules.")}
 };
+$("communityMediaBtn").onclick=()=>$("communityMediaInput").click();
 
+function mediaMarkup(m){
+ if(!m.mediaUrl)return "";
+ const type=String(m.mediaType||"");
+ const name=esc(m.mediaName||"Media");
+ if(type.startsWith("image/")) return `<a class="media-link" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener"><img class="message-media" src="${esc(m.mediaUrl)}" alt="${name}" loading="lazy"></a>`;
+ if(type.startsWith("video/")) return `<video class="message-media" controls preload="metadata" src="${esc(m.mediaUrl)}"></video>`;
+ if(type.startsWith("audio/")) return `<audio class="message-audio" controls src="${esc(m.mediaUrl)}"></audio>`;
+ return `<a class="message-file" href="${esc(m.mediaUrl)}" target="_blank" rel="noopener">📎 ${name}</a>`;
+}
 function renderMessages(box,list){
  const term=$("communitySearchInput")?.value?.trim().toLowerCase()||"";
  const filtered=list.filter(m=>!term||String(m.text||"").toLowerCase().includes(term)||String(m.fullName||"").toLowerCase().includes(term)||String(m.username||"").toLowerCase().includes(term));
  if(!filtered.length){box.innerHTML=`<div class="empty-chat"><div><div class="empty-icon">💬</div><strong>${term?"No matching messages":"Welcome to SHS Connect"}</strong><p>${term?"Try another search.":"Start chatting with your school community."}</p></div></div>`;return}
- let lastDate="";
- box.innerHTML="";
+ let lastDate=""; box.innerHTML="";
  filtered.forEach(m=>{
-   const mine=m.uid===currentUser.uid,d=dateKey(m.createdAt);
+   const mine=(m.uid||m.senderId)===currentUser.uid,d=dateKey(m.createdAt);
    if(d&&d!==lastDate){lastDate=d;const divider=document.createElement("div");divider.className="date-divider";divider.textContent=d===new Date().toDateString()?"Today":d;box.appendChild(divider)}
    const row=document.createElement("div");row.className="message-row"+(mine?" mine":"");
-   const av=`<div class="mini-avatar">${esc(initials(m.fullName||m.username))}</div>`;
-   row.innerHTML=`${mine?"":av}<div class="message-bubble"><div class="sender">${mine?"You":esc(m.fullName||"Student")}</div><div class="message-text">${esc(m.text||"")}</div><div class="message-meta">${esc(timeOf(m.createdAt))}${mine?'<span class="ticks">✓✓</span>':""}</div></div>${mine?av:""}`;
+   const senderId=m.uid||m.senderId;
+   const av=`<button type="button" class="mini-avatar user-avatar-btn" data-user-id="${esc(senderId||"")}">${esc(initials(m.fullName||m.username))}</button>`;
+   const senderName=mine?"You":esc(m.fullName||users.get(senderId)?.name||"Student");
+   row.innerHTML=`${mine?"":av}<div class="message-bubble"><div class="sender">${senderName}</div>${mediaMarkup(m)}${m.text?`<div class="message-text">${esc(m.text)}</div>`:""}<div class="message-meta">${esc(timeOf(m.createdAt))}${mine?'<span class="ticks">✓✓</span>':""}</div></div>${mine?av:""}`;
    box.appendChild(row);
  });
+ box.querySelectorAll("[data-user-id]").forEach(b=>b.onclick=()=>openUserProfile(b.dataset.userId));
  box.scrollTop=box.scrollHeight;
 }
 $("communitySearchBtn").onclick=()=>{$("communitySearchBar").classList.remove("hidden");$("communitySearchInput").focus()};
@@ -224,14 +260,18 @@ $("closeCommunitySearch").onclick=()=>{$("communitySearchBar").classList.add("hi
 $("communitySearchInput").oninput=()=>renderMessages($("communityMessages"),communityCache);
 
 function startAnnouncements(){
- const q=query(collection(db,"posts"),where("type","==","announcement"),orderBy("createdAt","desc"),limit(100));
- unsubAnnouncements=onSnapshot(q,snap=>renderAnnouncements(snap.docs.map(d=>({id:d.id,...d.data()}))),err=>{
+ const q=query(collection(db,"posts"),where("type","==","announcement"),limit(100));
+ unsubAnnouncements=onSnapshot(q,snap=>{
+   const list=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.toMillis?.()||0)-(a.createdAt?.toMillis?.()||0));
+   renderAnnouncements(list);
+ },err=>{
    console.error(err);toast("Announcements could not load. If Firebase requests an index, create it from the Firebase link in the console.");
  });
 }
 function renderAnnouncements(list){
- $("announcementList").innerHTML=list.length?list.map(p=>`<article class="announcement card"><div class="announcement-head"><div class="avatar">${esc(initials(p.authorName))}</div><div><strong>${esc(p.authorName||"Student")}</strong><small>@${esc(p.username||"student")} · ${esc(p.school||"School not set")} · ${esc(timeOf(p.createdAt))}</small></div></div><div class="announcement-body">${esc(p.text||"")}</div><span class="announcement-tag">ANNOUNCEMENT</span></article>`).join(""):`<div class="empty-chat card" style="height:260px"><div><div class="empty-icon">📢</div><strong>No announcements yet</strong><p>Publish the first one.</p></div></div>`;
+ $("announcementList").innerHTML=list.length?list.map(p=>`<article class="announcement card"><div class="announcement-head"><button type="button" class="avatar user-avatar-btn" data-user-id="${esc(p.uid||"")}">${esc(initials(p.authorName))}</button><div><strong>${esc(p.authorName||"Student")}</strong><small>@${esc(p.username||"student")} · ${esc(p.school||"School not set")} · ${esc(timeOf(p.createdAt))}</small></div></div><div class="announcement-body">${esc(p.text||"")}</div></article>`).join(""):`<div class="empty-chat card" style="height:260px"><div><div class="empty-icon">📢</div><strong>No announcements yet</strong><p>Publish the first one.</p></div></div>`;
 }
+$("announcementList").querySelectorAll("[data-user-id]").forEach(b=>b.onclick=()=>openUserProfile(b.dataset.userId));
 $("announcementForm").onsubmit=async e=>{
  e.preventDefault();const text=$("announcementInput").value.trim();if(!text)return;
  try{
@@ -244,9 +284,30 @@ $("announcementInput").oninput=e=>$("announcementCount").textContent=`${e.target
 function renderStudents(){
  const term=($("studentSearchInput")?.value||"").trim().toLowerCase();
  const list=[...users.values()].filter(u=>!term||`${u.name} ${u.username} ${u.school}`.toLowerCase().includes(term));
- $("studentsGrid").innerHTML=list.length?list.map(u=>`<div class="student-card"><div class="avatar">${esc(initials(u.name))}</div><div><strong>${esc(u.name||"Student")}</strong><small>@${esc(u.username||"student")}</small><div class="student-school">${esc(u.school||"School not set")}</div></div></div>`).join(""):`<div class="empty-chat card" style="grid-column:1/-1;height:220px"><div><div class="empty-icon">🎓</div><p>No students found.</p></div></div>`;
+ $("studentsGrid").innerHTML=list.length?list.map(u=>`<div class="student-card" data-student-id="${esc(u.id)}"><button type="button" class="user-avatar-btn avatar" aria-label="View ${esc(u.name||"student")}'s profile">${esc(initials(u.name))}</button><div><strong>${esc(u.name||"Student")}</strong><small>@${esc(u.username||"student")}</small><div class="student-school">${esc(u.school||"School not set")}</div></div></div>`).join(""):`<div class="empty-chat card" style="grid-column:1/-1;height:220px"><div><div class="empty-icon">🎓</div><p>No students found.</p></div></div>`;
 }
 $("studentSearchInput").oninput=renderStudents;
+$("studentsGrid").addEventListener("click",e=>{
+ const card=e.target.closest("[data-student-id]");
+ if(card&&e.target.closest(".user-avatar-btn")) openUserProfile(card.dataset.studentId);
+});
+
+function openUserProfile(uid){
+ const u=users.get(uid);
+ if(!u||uid===currentUser?.uid)return;
+ $("viewUserAvatar").textContent=initials(u.name);
+ $("viewUserName").textContent=u.name||"Student";
+ $("viewUserUsername").textContent="@"+(u.username||"student");
+ $("viewUserSchool").textContent=u.school||"School not set";
+ $("viewUserGender").textContent=u.gender||"Not provided";
+ $("viewUserCourse").textContent=u.course||"Not provided";
+ $("viewUserPhone").textContent=u.phone||"Not provided";
+ $("viewUserBio").textContent=u.bio||"No bio";
+ $("viewUserMessageBtn").onclick=()=>{$("userProfileModal").classList.add("hidden");showPage("privatePage");openPrivate(uid)};
+ $("userProfileModal").classList.remove("hidden");
+}
+$("closeUserProfile").onclick=()=>$("userProfileModal").classList.add("hidden");
+$("userProfileModal").onclick=e=>{if(e.target.id==="userProfileModal")e.currentTarget.classList.add("hidden")};
 
 /* Emoji picker */
 function setupEmoji(buttonId,pickerId,inputId){
